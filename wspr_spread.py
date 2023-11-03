@@ -112,82 +112,22 @@ def reference(f0, symbols, callsign):
     you need to pay _very_ close attention to the precision of your
     variables."""
 
-    dt = np.float32(1.0 / SAMPLE_RATE)
-    df = np.float32(SAMPLE_RATE / 256.0)
+    dt = 1.0 / SAMPLE_RATE
+    df = SAMPLE_RATE / 256.0
     nspersym = 256
-    twopidt = np.float32(np.float32(2.0) * np.pi * dt)
-    phi = np.float32(0.0)
-    tone_separation = np.float32(12000 / 8192)
-    #tone_separation = np.float32(1.5)
+    twopidt = 2.0 * np.pi * dt
+    phi = 0.0
+    tone_separation = 12000 / 8192
 
     reference = np.zeros(SAMPLES, dtype=complex)
-    with open(f"wsprd/{callsign}_ref_params.csv", newline='') as csvfile:
-        csv_reader = csv.reader(csvfile)
 
-        for i in range(0, 162):
-            # NOTE: no freq drift
-            dphi = np.float32(twopidt * (np.float32(f0) + (np.float32(symbols[i]) - tone_separation) * df))
-            for j in range(0, nspersym):
-                ii = nspersym * i + j
-
-                row = next(csv_reader)
-                wsprd_f0 = np.float32(row[0])
-                wsprd_twopidt = np.float32(row[1])
-                wsprd_df = np.float32(row[2])
-                wsprd_i = int(row[3])
-                wsprd_cs = np.float32(row[4])
-                wsprd_dphi = np.float32(row[5])
-                wsprd_ii = int(row[6])
-                wsprd_phi = np.float32(row[7])
-                wsprd_drift0 = np.float32(row[8])
-                wsprd_component = np.float32(row[9])
-
-#                if wsprd_i != i:
-#                    print(f"{callsign} i mismatch {wsprd_i} {i}")
-#                if wsprd_ii != ii:
-#                    print(f"{callsign} ii mismatch {wsprd_ii} {ii}")
-#                if wsprd_f0 != f0:
-#                    print(f"{callsign} f0 mismatch {wsprd_f0} {f0}")
-#                if wsprd_twopidt != twopidt:
-#                    print(f"{callsign} twopidt mismatch {wsprd_twopidt} {twopidt}")
-#                if wsprd_df != df:
-#                    print(f"{callsign} df mismatch {wsprd_df} {df}")
-#                if wsprd_cs != symbols[i]:
-#                    print(f"{callsign} cs mimatch {wsprd_cs} {symbols[i]}")
-                if wsprd_dphi != dphi:
-                    print(f"{callsign} dphi mismatch {wsprd_dphi} {dphi}")
-                    print(f"{wsprd_twopidt} * ({wsprd_f0} + ({wsprd_cs} - 1.5) * {wsprd_df})")
-                    new_dphi = np.float32(wsprd_twopidt * (f0 + (wsprd_cs - np.float32(1.5)) * wsprd_df))
-                    print(new_dphi)
-                    print(f"{callsign} {wsprd_dphi} {new_dphi}")
-                    print(f"{callsign} {wsprd_drift0} {wsprd_component}")
-                #    dphi = wsprd_dphi
-#                if wsprd_phi != phi:
-#                    print(f"{callsign} phi mismatch {wsprd_phi} {phi}, fixing")
-#                    print(f"{callsign} {type(phi)}")
-                    #phi = wsprd_phi
-
-                reference[ii] = np.cos(phi) + 1j * np.sin(phi)
-                phi += dphi
-
-    with open(f"wsprd/{callsign}_refi_refq.csv", newline='') as csvfile:
-        average_diff = 0.0
-        for i, row in enumerate(csv.reader(csvfile)):
-            wsprd_refi = float(row[0])
-            wsprd_refq = float(row[1])
-            our_refi = reference[i].real
-            our_refq = reference[i].imag
-
-            diff_i = wsprd_refi - our_refi
-            diff_q = wsprd_refq - our_refq
-            diff = abs(diff_i) + abs(diff_q)
-            average_diff += diff
-            #if (i % 100) == 0:
-            #    print(f"{callsign} reference {i} {diff_i} {diff_q}")
-
-            #reference[i] = wsprd_refi + 1j * wsprd_refq
-        average_diff /= 162 * nspersym
-        print(f"{callsign} average_diff {average_diff}")
+    for i in range(0, 162):
+        # NOTE: no freq drift
+        dphi = twopidt * (f0 + (symbols[i] - tone_separation) * df)
+        for j in range(0, nspersym):
+            ii = nspersym * i + j
+            reference[ii] = np.cos(phi) + 1j * np.sin(phi)
+            phi += dphi
 
     return reference
 
@@ -206,10 +146,6 @@ def calc_g(signal, iq_dat, r):
 
     g = np.zeros(SAMPLES, dtype=complex)
     shift0 = round((signal['dt'] + 1.0) * SAMPLE_RATE)
-
-    # NOTE: Not enough precision in signal['dt']
-    if shift0 == 79:
-        shift0 = 80
 
     for i in range(0, nsym * nspersym):
         k = shift0 + i
@@ -295,10 +231,6 @@ args = parser.parse_args()
 decodes = read_all_wspr(args.all_wspr)
 iq_dat = read_wav_file(args.wav_file)
 
-with open("wspr_spread_iq_dat.csv", "w") as f:
-    for point in iq_dat:
-        f.write(f"{point.real},{point.imag}\n")
-
 if args.debug:
     freqs = np.fft.fftfreq(SAMPLES, 1 / SAMPLE_RATE)
     fft = np.square(np.abs(np.fft.fft(iq_dat)))
@@ -311,37 +243,12 @@ for signal in decodes:
     ref_symbols = wspr.encode(signal['callsign'], signal['locator'], signal['power'])
     r = reference(signal['freq'], ref_symbols, signal['callsign'])
 
-    with open(f"{signal['callsign']}_ref_wspr_spread.csv", "w") as f:
-        for point in r:
-           f.write(f"{point.real},{point.imag}\n")
-
     if args.debug:
         freqs = np.fft.fftfreq(SAMPLES, 1 / SAMPLE_RATE)
         fft = np.square(np.abs(np.fft.fft(r)))
         plot_fft(f"{signal['callsign']}_r_fft.png", f"{signal['callsign']} R FFT (wspr_spread.py)", freqs, fft)
 
-#    print("Substituting wsprd's id and qd for iq_dat") 
-#    with open(f"wsprd/{signal['callsign']}_id_qd.csv", newline='') as csvfile:
-#        for i, row in enumerate(csv.reader(csvfile)):
-#            idat = float(row[0])
-#            qdat = float(row[1])
-#            iq_dat[i] = idat + 1j * qdat
-
-#    print("Substituting wsprd's refi and refq for r")
-#    with open(f"wsprd/{signal['callsign']}_refi_refq.csv", newline='') as csvfile:
-#        for i, row in enumerate(csv.reader(csvfile)):
-#            refi = float(row[0])
-#            refq = float(row[1])
-#            r[i] = refi + 1j * refq
-
     g = calc_g(signal, iq_dat, r)
-
-#    print("Substituting wsprd's c(t) for g")
-#    with open(f"wsprd/{signal['callsign']}_ci_cq.csv", newline='') as csvfile:
-#        for i, row in enumerate(csv.reader(csvfile)):
-#            ci = float(row[0])
-#            cq = float(row[1])
-#            g[i] = ci + 1j* cq
 
     g_fft = np.fft.fftshift(np.fft.fft(g)) # note the shift from "in-order"
 
