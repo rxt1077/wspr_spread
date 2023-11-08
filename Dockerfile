@@ -8,7 +8,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get -y install curl build-essential gcc \
     libfftw3-dev libreadline-dev libusb-1.0-0-dev libudev-dev portaudio19-dev \
     dos2unix
 RUN curl https://gigenet.dl.sourceforge.net/project/wsjt/wsjtx-2.6.1/wsjtx-2.6.1.tgz | tar zx --strip-components=1
-COPY wsprd.patch wsjtx.patch
+COPY all.patch wsjtx.patch
 WORKDIR /build
 RUN cmake ../wsjtx
 RUN cmake --build . --target wsjtx-update

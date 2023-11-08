@@ -1,0 +1,52 @@
+--- wsjtx/lib/wsprd/wsprd.c	2023-11-08 12:48:12.718133943 -0500
++++ wsjtx/lib/wsprd/wsprd.c	2023-11-08 11:35:17.917201270 -0500
+@@ -35,6 +35,7 @@
+ #include <stdint.h>
+ #include <time.h>
+ #include <fftw3.h>
++#include <stdbool.h>
+ 
+ #include "fano.h"
+ #include "jelinek.h"
+@@ -725,6 +726,7 @@
+     printf("       -v verbose mode (shows dupes)\n");
+     printf("       -w wideband mode - decode signals within +/- 150 Hz of center\n");
+     printf("       -z x (x is fano metric table bias, default is 0.45)\n");
++    printf("       -n no drift, does not attempt to follow a drifting frequency\n");
+ }
+ 
+ //***************************************************************************
+@@ -813,11 +815,12 @@
+ #include "./metric_tables.c"
+     
+     int mettab[2][256];
++    bool nodrift=false;
+     
+     idat=calloc(maxpts,sizeof(float));
+     qdat=calloc(maxpts,sizeof(float));
+     
+-    while ( (c = getopt(argc, argv, "a:BcC:de:f:HJmo:qstwvz:")) !=-1 ) {
++    while ( (c = getopt(argc, argv, "a:BcC:de:f:HJmno:qstwvz:")) !=-1 ) {
+         switch (c) {
+             case 'a':
+                 data_dir = optarg;
+@@ -850,6 +853,9 @@
+             case 'm':  //15-minute wspr mode
+                 wspr_type = 15;
+                 break;
++	    case 'n': // no drift
++		nodrift = true;
++		break;
+             case 'o':  //use ordered-statistics-decoder
+                 ndepth=(int) strtol(optarg,NULL,10);
+                 break;
+@@ -1006,6 +1012,9 @@
+             maxdrift=0;    // no drift for smaller frequency estimator variance
+             minsync2=0.10;
+         }
++	if(nodrift) {
++	    maxdrift=0;
++	}
+         ndecodes_pass=0;   // still needed?
+         
+         for (i=0; i<nffts; i++) {
