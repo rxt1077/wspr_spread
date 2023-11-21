@@ -224,7 +224,7 @@ def read_all_wspr(all_wspr_file):
 
 parser = argparse.ArgumentParser(description="Calculates the Doppler spread (w50) of signals decoded by wsprd")
 parser.add_argument("wav_file", help="WAV file of WSPR audio (same format was wsprd)")
-parser.add_argument("all_wspr", help="ALL_WSPR.txt format file with wsprd output (defaults to ALL_WSPR.txt)", default='ALL_WSPR.txt')
+parser.add_argument("all_wspr", help="ALL_WSPR.txt format file with wsprd output (defaults to ALL_WSPR.TXT)", default='ALL_WSPR.TXT', nargs="?")
 parser.add_argument("-d", "--debug", help="Print debugging messages and create FFT graphs", action='store_true')
 args = parser.parse_args()
 
@@ -288,21 +288,28 @@ for signal in decodes:
         freqs = np.arange(-4, 4,  DF)
         plot_fft(f"{signal['callsign']}_region_of_interest.png", f"{signal['callsign']} Region of Interest (wspr_spread.py)", freqs, region_of_interest)
 
-    # find the index where there's 25% of the total power in the power region
-    # and the index where there's 75% of the total power.
+    # find where there's 25% of the total power in the power region
+    # and  where there's 75% of the total power.
     # That frequency range is the doppler spread (w50)
     power_region = region_of_interest[POWER_START:POWER_END]
     total_power = np.sum(power_region)
     curr_sum = 0
-    index25 = None
-    index75 = None
+    prev_sum = 0
+    x25 = None
+    x75 = None
     for i, value in enumerate(power_region):
         curr_sum += value
-        if curr_sum >= 0.25 * total_power and not index25:
-            index25 = i
-        elif curr_sum >= 0.75 * total_power and not index75:
-            index75 = i
-    signal['doppler_spread'] = (index75 - index25) * DF
+        if curr_sum >= 0.25 * total_power and not x25:
+	    # account for overshoot and perform a linear estimate 
+            x25 = i - 1 + ((curr_sum - 0.25 * total_power) / (curr_sum - prev_sum))
+        elif curr_sum >= 0.75 * total_power and not x75:
+            x75 = i - 1 + ((curr_sum - 0.75 * total_power) / (curr_sum - prev_sum))
+        prev_sum = curr_sum
+
+    # Keep small values from fluctuating too widely and set minimum difference to one
+    xdiff = np.sqrt(1.0 + (x75 - x25)**2)
+
+    signal['doppler_spread'] = xdiff * DF
 
     # here's the C format string from wsprd for reference:
     # "%6s %4s %3.0f %5.2f %11.7f  %-22s %2d %5.2f %2d %2d %4d %2d %3d %5u %5d\n"

@@ -1,6 +1,6 @@
 --- wsjtx/lib/wsprd/wsprd.c	2023-11-08 12:48:12.718133943 -0500
-+++ wsprd.c.spread	2023-11-02 21:38:31.072130731 -0400
-@@ -537,10 +537,117 @@
++++ wsprd.c.spread	2023-11-20 21:41:51.125024006 -0500
+@@ -537,11 +537,131 @@
      }
      return;
  }
@@ -8,7 +8,7 @@
 +/******************************************************************************
 +  Calculate the doppler spread (w50) from g (estimated channel gain data, c(t)) 
 + *******************************************************************************/
-+float dopspread(float *ci, float *cq)
++float dopspread(float *ci, float *cq, char *callsign)
 +{
 +    int i, j;
 +    int nsym = 162;
@@ -23,7 +23,7 @@
 +    int right_noise_points = 0;
 +    int left_noise_points = 0;
 +    float left_noise = 0, right_noise = 0, noise, freq;
-+    int i25 = 0, i75 = 0;
++    float x25 = -1, x75 = -1, prev_power;
 +    float doppler_spread;
 +
 +    /* take an FFT of c(t) from subtract_signal2() */
@@ -89,19 +89,32 @@
 +	}
 +    }
 +
-+    /* find the indexes where the power reaches 25% of the total and 75% */
++    /* save the ROI
++    char filename[64];
++    sprintf(filename, "%s_roi.csv", callsign);
++    FILE *fp = fopen(filename, "w");
++    for (i = 0; i < roi_points; i++) {
++    	fprintf(fp, "%f,%f\n", (i * df) - 4, roi[i]);
++    }
++    fclose(fp); */
++
++    /* find where the power reaches 25% of the total and 75% */
++    prev_power = 0.0;
 +    for (i = ((-1 + 4) / df); i < ((1 + 4) / df); i++) {
 +	curr_power += roi[i];
-+	if (((curr_power / total_power) > 0.25) && (i25 == 0)) {
-+	    i25 = i;
++	if ((curr_power >= (0.25 * total_power)) && (x25 < 0)) {
++	    /* account for overshoot and perform a linear estimate */
++	    x25 = i - (curr_power - (0.25 * total_power)) / (curr_power - prev_power);
 +	}
-+	if (((curr_power / total_power) > 0.75) && (i75 == 0)) {
-+	    i75 = i;
++	if ((curr_power >=(0.75 * total_power)) && (x75 < 0)) {
++	    x75 = i - (curr_power - (0.75 * total_power)) / (curr_power - prev_power);
 +	}
++	prev_power = curr_power;
 +    }
 +
-+    /* Doppler spread is the frequency difference between those points */
-+    doppler_spread = (i75 - i25) * df;
++    /* Doppler spread is the frequency difference between those points
++    using 1 + sqrt(diff) keeps the small values from fluctuating too widely */
++    doppler_spread = sqrt(1.0 + pow((x75 - x25), 2)) * df;
 +
 +    fftwf_destroy_plan(plan);
 +    fftwf_free(g);
@@ -115,11 +128,13 @@
    Subtract the coherent component of a signal 
   *******************************************************************************/
 -void subtract_signal2(float *id, float *qd, long np,
+-                      float f0, int shift0, float drift0, unsigned char* channel_symbols)
 +float subtract_signal2(float *id, float *qd, long np,
-                       float f0, int shift0, float drift0, unsigned char* channel_symbols)
++                      float f0, int shift0, float drift0, unsigned char* channel_symbols, char *callsign)
  {
      float dt=1.0/375.0, df=375.0/256.0;
-@@ -550,7 +657,8 @@
+     float pi=4.*atan(1.0), twopidt, phi=0, dphi, cs;
+@@ -550,7 +670,8 @@
      int nc2=45000;
      
      float *refi, *refq, *ci, *cq, *cfi, *cfq;
@@ -129,16 +144,16 @@
      refi=calloc(nc2,sizeof(float));
      refq=calloc(nc2,sizeof(float));
      ci=calloc(nc2,sizeof(float));
-@@ -615,6 +723,8 @@
+@@ -615,6 +736,8 @@
          }
      }
  
-+    doppler_spread = dopspread(ci, cq);
++    doppler_spread = dopspread(ci, cq, callsign);
 +
      // LPF
      for (i=nfilt/2; i<45000-nfilt/2; i++) {
          cfi[i]=0.0; cfq[i]=0.0;
-@@ -651,7 +761,7 @@
+@@ -651,7 +774,7 @@
      free(cfi);
      free(cfq);
      
@@ -147,7 +162,7 @@
  }
  
  unsigned long writec2file(char *c2filename, int trmin, double freq
-@@ -764,6 +874,7 @@
+@@ -764,6 +887,7 @@
      clock_t t0,t00;
      float tfano=0.0,treadwav=0.0,tcandidates=0.0,tsync0=0.0;
      float tsync1=0.0,tsync2=0.0,tosd=0.0,ttotal=0.0;
@@ -155,7 +170,7 @@
      
      struct cand { float freq; float snr; int shift; float drift; float sync; };
      struct cand candidates[200];
-@@ -771,7 +882,7 @@
+@@ -771,7 +895,7 @@
      struct result { char date[7]; char time[5]; float sync; float snr;
          float dt; double freq; char message[23]; float drift;
          unsigned int cycles; int jitter; int blocksize; unsigned int metric;
@@ -164,7 +179,7 @@
      struct result decodes[50];
      
      char *hashtab;
-@@ -1426,10 +1537,11 @@
+@@ -1426,10 +1550,11 @@
                  // Unpack the decoded message, update the hashtable, apply
                  // sanity checks on grid and power, and return
                  // call_loc_pow string and also callsign (for de-duping).
@@ -173,11 +188,11 @@
                  if( subtraction && !noprint ) {
                      if( get_wspr_channel_symbols(call_loc_pow, hashtab, loctab, channel_symbols) ) {
 -                        subtract_signal2(idat, qdat, npoints, f1, shift1, drift1, channel_symbols);
-+                        doppler_spread = subtract_signal2(idat, qdat, npoints, f1, shift1, drift1, channel_symbols);
++                        doppler_spread = subtract_signal2(idat, qdat, npoints, f1, shift1, drift1, channel_symbols, callsign);
                          if(!osd_decode) nhardmin=count_hard_errors(symbols,channel_symbols);
                      } else {
                          break;
-@@ -1473,6 +1585,7 @@
+@@ -1473,6 +1598,7 @@
                      decodes[uniques-1].nhardmin=nhardmin;
                      decodes[uniques-1].ipass=ipass;
                      decodes[uniques-1].decodetype=osd_decode;
@@ -185,7 +200,7 @@
                  }
              }
          }
-@@ -1504,13 +1617,13 @@
+@@ -1504,13 +1630,13 @@
                 decodes[i].time, decodes[i].snr,decodes[i].dt, decodes[i].freq,
                 (int)decodes[i].drift, decodes[i].message);
          fprintf(fall_wspr,
