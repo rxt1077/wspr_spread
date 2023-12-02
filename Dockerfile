@@ -11,6 +11,6 @@ RUN curl https://gigenet.dl.sourceforge.net/project/wsjt/wsjtx-2.6.1/wsjtx-2.6.1
 COPY all.patch wsjtx.patch
 WORKDIR /build
 RUN cmake ../wsjtx
-RUN cmake --build .
 RUN cmake --build . --target wsjtx-update
 RUN dos2unix wsjtx-prefix/src/wsjtx/lib/wsprd/wsprd.c
+RUN dos2unix wsjtx-prefix/src/wsjtx/lib/fst4_decode.f90
